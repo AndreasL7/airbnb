@@ -1,6 +1,8 @@
+# Project Title: Waterbnb — Visualisation Tool for Airbnb Investors and Landlords
+
 # Project Description
 
-Welcome to the DBA3702 Descriptive Analytics with R GitHub repository. This repository contains all the materials, code, and documentation for our project focused on Descriptive Analytics using R. In this project, we address a critical problem in the short-term rental market, particularly with Airbnb, by providing solutions for prospective investors and existing landlords.
+Welcome to my DBA3702 Descriptive Analytics with R GitHub repository. This repository contains all the materials, code, and documentation for my project focused on Descriptive Analytics using R. In this project, my team and I address a critical problem in the short-term rental market, particularly with Airbnb, by providing solutions for prospective investors and existing landlords.
 
 # Introduction and Motivation
 
