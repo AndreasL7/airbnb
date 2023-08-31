@@ -1,0 +1,298 @@
+---
+title: "Project airbnb data"
+author: "Chiong Shao Yong A0216613M"
+date: "2022-10-16"
+output: html_document
+---
+```{r}
+library(data.table)
+library(R.utils)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(geosphere)
+```
+
+
+
+Load the data that is crawled and save in csv format 
+```{r}
+df=read.csv("US property data raw.csv")
+
+
+```
+
+
+# data cleaning problems identified 
+
+1) splitting up the size column and creating new columns of sqft bath and bed
+
+```{r}
+head(df)
+
+
+df%>% mutate(sqft = as.numeric(gsub("[ ,]","",(str_extract(size,"[0-9/, ]*(?=sqft)"))))) -> updateddf 
+updateddf %>% mutate(bath = as.numeric(gsub("[ ,]","",(str_extract(size,"[0-9/, ]*(?=ba)"))))) -> updateddf 
+updateddf %>% mutate(bed = str_extract(size,regex("([0-9/, ]*(?=bd))|studio",ignore_case = T))) -> updateddf 
+updateddf%>%mutate(bed = ifelse(bed =="Studio",1,bed)) -> updateddf
+head(updateddf)
+
+```
+
+
+2) changing price to numeric
+
+3)those with size empty are all land property type which we are not interested in
+```{r}
+updateddf%>%filter(sale_price=="")
+```
+
+
+4)properties with empty price are  yet to be built, hence are also excluded 
+
+
+5) plan properties are not actual properties on sale and have to be excluded 
+```{r}
+head(updateddf[grepl("Plan",updateddf$Full.Address),])
+```
+
+6) rows with NA state have incorrectly crawled data 
+```{r}
+
+updateddf%>%filter(is.na(State))
+```
+removing problems  2 3 4 5 6  and creating a new cleaned df
+```{r}
+
+df_cleaned=updateddf%>%filter(!is.na(State))%>%filter(size!="",sale_price!="")%>%filter(!grepl("Plan",Full.Address,ignore.case = T))
+
+df_cleaned$sale_price=as.numeric(gsub("\\D","",df_cleaned$sale_price))
+head(df_cleaned)
+```
+
+
+7) incorrect address data 
+```{r}
+library(stringr)
+df_cleaned%>%filter(str_detect(State,"[[:lower:]]"))
+
+```
+fix problem 7
+```{r}
+#creating index column in df_cleaned 
+df_cleaned$X=1:nrow(df_cleaned)
+
+
+problem=df_cleaned%>%filter(str_detect(State,"[[:lower:]]"))%>%separate(address,c("Address","Cities","State.Postal","Country"),",")
+
+
+df_cleaned[df_cleaned$X==problem$X,]$State=toupper(str_extract(problem$State.Postal,"[a-zA-Z]+"))
+df_cleaned[df_cleaned$X==problem$X,]$Postal.Code=str_extract(problem$State.Postal,"\\d\\d\\d\\d\\d")
+df_cleaned[df_cleaned$X==problem$X,]$Cities=problem$Cities
+df_cleaned[df_cleaned$X==problem$X,]
+
+```
+
+8) cities have duplicates in caps and small letters and remove the spacing in the front
+
+```{r}
+df_cleaned$Cities=capitalize(tolower(gsub("^\\s","",df_cleaned$Cities)))
+
+```
+9) need to add price per sqft
+```{r}
+df_cleaned$psf=round(df_cleaned$sale_price/df_cleaned$sqft,2)
+```
+
+10) some prices are dummy variables, ie price =1 , these property are usually to be auctioned off 
+```{r}
+df_cleaned=df_cleaned%>%filter(sale_price!=1)
+```
+
+
+
+
+11) remove spaces in state column
+```{r}
+df_cleaned$State=gsub("\\s","",df_cleaned$State) 
+```
+
+12) remove the duplicated full address column 
+
+```{r}
+df_cleaned=df_cleaned%>%select(-Full.Address)%>%rename("Full.Address"=address)
+```
+
+13) some Postal code are incomplete
+
+```{r}
+temp=df_cleaned%>%filter(nchar(Postal.Code)<5)
+
+df_cleaned[match(temp$X,df_cleaned$X),]$Postal.Code=str_extract(temp$Full.Address,"\\d\\d\\d\\d\\d")
+head(df_cleaned[match(temp$X,df_cleaned$X),])
+nrow(df_cleaned%>%filter(nchar(Postal.Code)<5)) #should be 0
+```
+
+14) drop the columns where full address not included ie NA postal , as these address do not have a location it is useless
+```{r}
+
+df_cleaned=df_cleaned%>%filter(!is.na(Postal.Code))
+head(df_cleaned)
+```
+
+15) finally remove the index column
+```{r}
+df_cleaned=df_cleaned%>%select(-X)
+head(df_cleaned)
+```
+
+16) adding simulated data of the potential monthly occupancy rate in each property
+- Assume a survey has been carried out on airbnb website to gauge the popularity of the area 
+
+
+-assume that the monthly occupancy rate follows a distribution of N(mean,sd)
+mean and sd value use website data 
+
+
+Generate data table from website
+```{r}
+url = "https://www.mashvisor.com/blog/what-airbnb-occupancy-rate-can-you-expect/"
+page <- read_html(url) #Creates an html document from URL
+table <- html_table(page, fill = TRUE,header = T) #Parses tables into data frames
+table[3] -> table
+as.data.frame(table) -> table
+
+table$City %>% str_extract(pattern="(?<=, ).*") -> table$State
+table$State
+check <- c(" NC", " TX"," MA", " IL", " OH" ," CO", " NJ", "NJ",  " CA" ," TN", " LA", "LA" , " NY" ," OR" ," RI" ," WA", "WA" ," DC")
+gsub(" ","",check) -> check
+table$Average.Airbnb.Occupancy.Rate..2021=as.numeric(gsub("%","",table$Average.Airbnb.Occupancy.Rate..2021))/100
+table$Average.Airbnb.Occupancy.Rate..2022=as.numeric(gsub("%","",table$Average.Airbnb.Occupancy.Rate..2022))/100
+table
+
+occupancy_data=table%>% group_by(State)%>%
+  summarise(mean.occupancy.per.yr.2021=mean(Average.Airbnb.Occupancy.Rate..2021)*365,mean.occupancy.per.yr.2022=mean(Average.Airbnb.Occupancy.Rate..2022)*365,mean_occupancy_2021_2022=(mean.occupancy.per.yr.2021+mean.occupancy.per.yr.2022)/2,sd_occupancy_2021_2022=sd(c(mean.occupancy.per.yr.2021,mean.occupancy.per.yr.2022)))
+
+# since no data of RI ,LA and NJ use the national average and sd 
+us.mean=mean(c(occupancy_data$mean.occupancy.per.yr.2021,occupancy_data$mean.occupancy.per.yr.2022))
+us.sd=sd(c(occupancy_data$mean.occupancy.per.yr.2021,occupancy_data$mean.occupancy.per.yr.2022))
+occupancy_data=rbind(occupancy_data,c("RI",NA,NA,us.mean,us.sd),c("LA",NA,NA,us.mean,us.sd),c("NJ",NA,NA,us.mean,us.sd))
+occupancy_data$mean_occupancy_2021_2022=as.numeric(occupancy_data$mean_occupancy_2021_2022)
+occupancy_data$sd_occupancy_2021_2022=as.numeric(occupancy_data$sd_occupancy_2021_2022)
+occupancy_data
+```
+
+
+
+Generate random estimates using rnorm function
+-Predicted Occupancy data shown here will be different as compared to the pre generated data frame that we have done 
+-pre generated data frame has been save as a csv with name "US Property data Cleaned.csv" and will be loaded and used for the app 
+```{r}
+
+index=match(df_cleaned$State,occupancy_data$State)
+occupancy.prop=data.frame(1:length(index),index)
+
+
+for(i in 1:length(occupancy.prop$index)){
+  occupancy.prop$mean[i]=occupancy_data$mean_occupancy_2021_2022[occupancy.prop$index[i]]
+  occupancy.prop$sd[i]=occupancy_data$sd_occupancy_2021_2022[occupancy.prop$index[i]]
+}
+
+#applying rnorm to data
+func1 <- function(x) rnorm(1, mean = x[1], sd = x[2])
+
+df_cleaned$Predicted.Occupancy.per.yr=apply(occupancy.prop[-c(1,2)], 1, FUN = func1)
+
+
+
+```
+
+Saving the generated cleaned data frame into a csv, as randomness function of Rnorm will lead to different values of Predicted occupancy , hence eval=false. 
+pre generated "US Property data Cleaned.csv" is found in US property data cleaning folder 
+```{r, eval=FALSE}
+write.csv(df_cleaned,"US Property data Cleaned.csv")
+```
+
+
+17) 
+find the ROI of each property based on nearby property, to use the following formula:
+occupancy* average of nearby (within 500m) airbnb prices per pax *bedrooms in house
+
+
+```{r}
+airbnb_df=read.csv("combined_airbnb.csv")
+head(airbnb_df)
+```
+
+
+Function to generate ROI, evaluation is set to false as due to the randomness of the property occupancy data, ROI will be different, pre generated ROI based on the previous randomly pre-generated occupancy is saved into a CSV and loaded 
+```{r eval=FALSe}
+
+ROI_fetch_new=function(prop.row,data){
+  #generate parameters of input to zoom into
+
+  prop.lat=prop.row$lat
+  prop.long=prop.row$lon
+  prop.points=c(prop.long,prop.lat)
+  prop.price=prop.row$sale_price
+  data <- data %>% filter(state_code == prop.row$State)
+  
+  #find out distance of property and all airbnb
+  mat=cbind(data$longitude,data$latitude)
+  airbnb_df_zoom=cbind(data,data.frame("Distance.prop"=distm(mat,prop.points)))
+  distance =500 
+  #new data frame that has all airbnb within 500m of property 
+  airbnb_plot=airbnb_df_zoom%>%filter(Distance.prop<distance)%>%mutate(Price.per.person=parse_number(price)/accommodates)
+
+  avg_price=ifelse(nrow(airbnb_plot)==0,NA,mean(airbnb_plot$Price.per.person))
+
+  ROI=avg_price*prop.row$Predicted.Occupancy.per.yr*as.numeric(prop.row$bed)
+  return(ROI)
+}
+
+
+ROI_all=numeric(nrow(df_cleaned))
+
+for(i in 1:nrow(df_cleaned)){
+  ROI_all[i]=ROI_fetch_new(df_cleaned[i,],data = airbnb_df)
+}
+ROI.df=data.frame(ROI=ROI_all)
+
+write.csv(ROI.df,"ROI.csv")
+
+```
+
+
+
+
+```{r eval=FALSE}
+df_cleaned_pre_gen=read.csv("US Property data Cleaned.csv") #use the previously generated property cleaned data
+
+#adding ROI to df 
+ROI.df=read.csv("ROI.csv")
+
+
+df_cleaned_pre_gen$ROI=(ROI.df$ROI/df_cleaned_pre_gen$sale_price)
+
+write.csv(df_cleaned_pre_gen,"US Property data Cleaned with ROI.csv")
+```
+
+Final csv "US Property data Cleaned with ROI.csv" is available in the main folder with the app 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

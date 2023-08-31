@@ -1,0 +1,105 @@
+---
+title: "Project"
+author: "Joshua, Andreas"
+date: "22-10-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(shiny)
+library(shinythemes)
+library(data.table)
+library(R.utils)
+library(dplyr)
+library(readr)
+library(lubridate)
+library(scales)
+library(formattable)
+library(tidyr)
+library(stringr)
+library(hablar)
+library(rvest)
+library(ggplot2)
+library(gganimate)
+library(ggmap)
+library(XML)
+library(xml2)
+```
+
+
+```{r states}
+statewiki_url = 'https://en.wikipedia.org/wiki/List_of_United_States_cities_by_population'
+CT_states = (read_html(statewiki_url) %>% html_nodes('table'))[5] %>% html_table() %>% data.frame()
+state_abbrv_url = 'https://www23.statcan.gc.ca/imdb/p3VD.pl?Function=getVD&TVD=53971'
+state_abbrevs = read_html(state_abbrv_url) %>% html_nodes('table') %>% html_table() %>% data.frame()
+
+CT_states$City = gsub("\\[.*\\]","",CT_states$City)
+US_city_states = left_join(CT_states, state_abbrevs, by = c('State.c.' = 'State'))
+US_city_states = US_city_states %>% select(City, State = State.c.,  Abbrev = Alpha.code)
+US_city_states
+
+```
+
+```{r}
+City<- c("Asheville", "Austin", "Boston", "Cambridge", "Chicago", "Columbus", "Dallas", "Denver", "Fort Worth", "Hawaii", "Jersey", "Los Angeles", "Nashville", "New Orleans", "New York", "Newark", "Oakland", "Pacific Grove", "Portland", "Rhode Island", "Salem", "San Diego", "San Francisco", "Seattle", "Washington Dc")
+
+US_city_states <- data.frame(City)
+US_city_states
+```
+
+```{r data}
+url = 'http://insideairbnb.com/get-the-data/'
+page = read_html(url)
+tables = page %>% html_nodes('table')
+city = 'new-york'
+all_cities = tables %>% html_attr('class') %>% gsub(pattern="(data\\stable\\stable-hover\\stable-striped\\s)(.*)",replacement="\\2") %>% 
+gsub(pattern = "(city)", replacement = "") %>% gsub(pattern = "-$", replacement = "")
+all_cities #salem-or is here
+
+#Clean all_cities to Proper Case, replace - with space
+proper_cities = all_cities %>% gsub(pattern = "-", replacement = " ", fixed=T) %>% str_to_title()
+proper_cities #Salem Or
+
+#Change Salem Or to Salem
+proper_cities <- replace(proper_cities,proper_cities=="Salem Or","Salem")
+proper_cities
+
+cities = all_cities[(proper_cities %in% US_city_states$City | proper_cities %in% c("Hawaii", "Vancouver")) & proper_cities != "Athens"] # hawaii not in wikipedia page, athens from airbnb page is in greece
+cities
+
+proper_cities = proper_cities[proper_cities %in% US_city_states$City]
+proper_cities
+tables = tables[all_cities %in% cities]
+tables
+#reverse converter
+#str_to_lower("New York") %>% gsub(fixed=T, pattern=" ", replacement="-")
+
+
+
+```
+
+Note that the scraping chunk below could potentially face error (runtime exceeding 60 second) sometimes. However, it works perfectly fine. Please just retry again a few moment later. It should download the relevant file and store it in a folder called "temp" in your working directory and automatically unzips the file for you. These files are needed to run Combine Airbnb.rmd. However, we have already included these temp folder under data cleaning -> airbnb data cleaning with all the relevant csv inside. So there is no need to run the code below.
+
+```{r}
+dir.create("./temp")
+
+for (city in cities){
+  dir.create(paste0("./temp/",city))
+  proper_city = proper_cities[which(cities==city)]
+  city_table = tables[which(cities==city)]
+  city_table_rows = city_table %>% html_nodes('a')
+  
+  city_table_rows[(city_table_rows %>% html_text() == "listings.csv.gz")] %>%
+    html_attr('href') %>% download.file(file.path("temp",city, basename(.)))
+  city_table_rows[(city_table_rows %>% html_text() == "neighbourhoods.csv")] %>%
+    html_attr('href') %>% download.file(file.path("temp",city, basename(.)))
+  city_table_rows[(city_table_rows %>% html_text() == "neighbourhoods.geojson")] %>%
+    html_attr('href') %>% download.file(file.path("temp",city, basename(.)))
+  if (file.exists(file.path("temp",city,"listings.csv"))){
+        file.remove(file.path("temp",city,"listings.csv"))
+      }
+  gunzip(file.path("temp",city,"listings.csv.gz"), remove=FALSE)
+} 
+```
+

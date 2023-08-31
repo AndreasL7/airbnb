@@ -1,0 +1,349 @@
+---
+title: "Combine AirBnB"
+author: "Andreas"
+output: html_document
+date: "2022-11-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(tidyverse)
+```
+
+#Load data to csv
+```{r}
+austin_listings <- read.csv('./temp/austin/listings.csv')
+boston_listings <- read.csv('./temp/boston/listings.csv')
+cambridge_listings <- read.csv('./temp/cambridge/listings.csv')
+chicago_listings <- read.csv('./temp/chicago/listings.csv')
+columbus_listings <- read.csv('./temp/columbus/listings.csv')
+dallas_listings <- read.csv('./temp/dallas/listings.csv')
+denver_listings <- read.csv('./temp/denver/listings.csv')
+fortworth_listings <- read.csv('./temp/fort-worth/listings.csv')
+ashville_listings <- read.csv('./temp/asheville/listings.csv')
+hawaii_listings <- read.csv('./temp/hawaii/listings.csv')
+
+jersey_listings <- read.csv('./temp/jersey/listings.csv')
+los_angeles_listings <- read.csv('./temp/los-angeles/listings.csv')
+nashville_listings <- read.csv('./temp/nashville/listings.csv')
+neworleans_listings <- read.csv('./temp/new-orleans/listings.csv')
+newyork_listings <- read.csv('./temp/new-york/listings.csv')
+newark_listings <- read.csv('./temp/newark/listings.csv')
+oakland_listings <- read.csv('./temp/oakland/listings.csv')
+pacificgrove_listings <- read.csv('./temp/pacific-grove/listings.csv')
+portland_listings <- read.csv('./temp/portland/listings.csv')
+rhodeisland_listings <- read.csv('./temp/rhode-island/listings.csv')
+
+salem_listings <- read.csv('./temp/salem-or/listings.csv')
+sandiego_listings <- read.csv('./temp/san-diego/listings.csv')
+sanfrancisco_listings <- read.csv('./temp/san-francisco/listings.csv')
+seattle_listings <- read.csv('./temp/seattle/listings.csv')
+washingtondc_listings <- read.csv('./temp/washington-dc/listings.csv')
+```
+
+Note: Some data sets are not consistent in terms of the data types, hence the need to check and convert accordingly before combining all into one giant data set.
+
+Austin
+```{r}
+austin_listings$location <- "Austin"
+austin_listings$state_code <- "TX"
+austin_listings <- austin_listings %>% select("location", everything())
+austin_listings$neighbourhood_cleansed <- as.character(austin_listings$neighbourhood_cleansed)
+head(austin_listings)
+```
+
+Boston
+```{r}
+boston_listings$location <- "Boston"
+boston_listings$state_code <- "MA"
+boston_listings <- boston_listings %>% select("location", everything())
+head(boston_listings)
+```
+
+Cambridge
+```{r}
+cambridge_listings$location <- "Cambridge"
+cambridge_listings$state_code <- "MA"
+cambridge_listings <- cambridge_listings %>% select("location", everything())
+head(cambridge_listings)
+```
+
+Chicago
+```{r}
+chicago_listings$location <- "Chicago"
+chicago_listings$state_code <- "IL"
+chicago_listings <- chicago_listings %>% select("location", everything())
+head(chicago_listings)
+```
+
+Columbus
+```{r}
+columbus_listings$location <- "Columbus"
+columbus_listings$state_code <- "OH"
+columbus_listings <- columbus_listings %>% select("location", everything())
+head(columbus_listings)
+```
+
+Dallas
+```{r}
+dallas_listings$location <- "Dallas"
+dallas_listings$state_code <- "TX"
+dallas_listings <- dallas_listings %>% select("location", everything())
+head(dallas_listings)
+```
+
+Denver
+```{r}
+denver_listings$location <- "Denver"
+denver_listings$state_code <- "CO"
+denver_listings <- denver_listings %>% select("location", everything())
+head(denver_listings)
+```
+
+Fort-Worth
+```{r}
+fortworth_listings$location <- "Fort Worth"
+fortworth_listings$state_code <- "TX"
+fortworth_listings <- fortworth_listings %>% select("location", everything())
+head(fortworth_listings)
+```
+
+Ashville
+```{r}
+ashville_listings$location <- "Ashville"
+ashville_listings$state_code <- "NC"
+ashville_listings <- ashville_listings %>% select("location", everything())
+ashville_listings$neighbourhood_cleansed <- as.character(ashville_listings$neighbourhood_cleansed)
+head(ashville_listings)
+```
+
+
+Hawaii
+```{r}
+hawaii_listings$location <- "Hawaii"
+hawaii_listings$state_code <- "HI"
+hawaii_listings <- hawaii_listings %>% select("location", everything())
+head(hawaii_listings)
+```
+
+Jersey
+```{r}
+jersey_listings$location <- "New Jersey"
+jersey_listings$state_code <- "NJ"
+jersey_listings <- jersey_listings %>% select("location", everything())
+head(jersey_listings)
+```
+
+
+Los Angeles
+```{r}
+los_angeles_listings$location <- "Los Angeles"
+los_angeles_listings$state_code <- "CA"
+los_angeles_listings <- los_angeles_listings %>% select("location", everything())
+head(los_angeles_listings)
+```
+
+
+Nashville
+```{r}
+nashville_listings$location <- "Nashville"
+nashville_listings$state_code <- "TN"
+nashville_listings <- nashville_listings %>% select("location", everything())
+head(nashville_listings)
+```
+
+
+New Orleans
+```{r}
+neworleans_listings$location <- "New Orleans"
+neworleans_listings$state_code <- "LA"
+neworleans_listings <- neworleans_listings %>% select("location", everything())
+head(neworleans_listings)
+```
+
+
+New York
+```{r}
+newyork_listings$location <- "New York"
+newyork_listings$state_code <- "NY"
+newyork_listings <- newyork_listings %>% select("location", everything())
+head(newyork_listings)
+```
+
+Newark
+```{r}
+newark_listings$location <- "Newark"
+newark_listings$state_code <- "NJ"
+newark_listings <- newark_listings %>% select("location", everything())
+head(newark_listings)
+```
+
+
+Oakland
+```{r}
+oakland_listings$location <- "Oakland"
+oakland_listings$state_code <- "CA"
+oakland_listings <- oakland_listings %>% select("location", everything())
+head(oakland_listings)
+```
+
+Pacific Grove
+```{r}
+pacificgrove_listings$location <- "Pacific Grove"
+pacificgrove_listings$state_code <- "CA"
+pacificgrove_listings <- pacificgrove_listings %>% select("location", everything())
+head(pacificgrove_listings)
+```
+
+
+Portland
+```{r}
+portland_listings$location <- "Portland"
+portland_listings$state_code <- "OR"
+portland_listings <- portland_listings %>% select("location", everything())
+head(portland_listings)
+```
+
+
+Rhode Island
+```{r}
+rhodeisland_listings$location <- "Rhode Island"
+rhodeisland_listings$state_code <- "RI"
+rhodeisland_listings <- rhodeisland_listings %>% select("location", everything())
+head(rhodeisland_listings)
+```
+
+
+Salem
+```{r}
+salem_listings$location <- "Salem"
+salem_listings$state_code <- "OR"
+salem_listings <- salem_listings %>% select("location", everything())
+head(salem_listings)
+```
+
+
+San Diego
+```{r}
+sandiego_listings$location <- "San Diego"
+sandiego_listings$state_code <- "CA"
+sandiego_listings <- sandiego_listings %>% select("location", everything())
+head(sandiego_listings)
+```
+
+
+San Francisco
+```{r}
+sanfrancisco_listings$location <- "San Francisco"
+sanfrancisco_listings$state_code <- "CA"
+sanfrancisco_listings <- sanfrancisco_listings %>% select("location", everything())
+head(sanfrancisco_listings)
+```
+
+
+Seattle
+```{r}
+seattle_listings$location <- "Seattle"
+seattle_listings$state_code <- "WA"
+seattle_listings <- seattle_listings %>% select("location", everything())
+head(seattle_listings)
+```
+
+
+Washington DC
+```{r}
+washingtondc_listings$location <- "Washington DC"
+washingtondc_listings$state_code <- "DC"
+washingtondc_listings <- washingtondc_listings %>% select("location", everything())
+head(washingtondc_listings)
+```
+
+
+Check dataframe shape
+```{r}
+print(paste0("Austin df shape: ", dim(austin_listings)))
+print(paste0("Boston df shape: ", dim(boston_listings)))
+print(paste0("Cambridge df shape: ", dim(cambridge_listings)))
+print(paste0("Chicago df shape: ", dim(chicago_listings)))
+print(paste0("Columbus df shape: ", dim(columbus_listings)))
+print(paste0("Dallas df shape: ", dim(dallas_listings)))
+print(paste0("Denver df shape: ", dim(denver_listings)))
+print(paste0("Fort-Worth df shape: ", dim(fortworth_listings)))
+print(paste0("Ashville df shape: ", dim(ashville_listings)))
+print(paste0("Hawaii df shape: ", dim(hawaii_listings)))
+
+print(paste0("New Jersey df shape: ", dim(jersey_listings)))
+print(paste0("Los Angeles df shape: ", dim(los_angeles_listings)))
+print(paste0("Nashville df shape: ", dim(nashville_listings)))
+print(paste0("New Orleans df shape: ", dim(neworleans_listings)))
+print(paste0("New York df shape: ", dim(newyork_listings)))
+print(paste0("Newark df shape: ", dim(newark_listings)))
+print(paste0("Oakland df shape: ", dim(oakland_listings)))
+print(paste0("Pacific Grove df shape: ", dim(pacificgrove_listings)))
+print(paste0("Portland df shape: ", dim(portland_listings)))
+print(paste0("Rhode Island df shape: ", dim(rhodeisland_listings)))
+
+print(paste0("Salem df shape: ", dim(salem_listings)))
+print(paste0("San Diego df shape: ", dim(sandiego_listings)))
+print(paste0("San Francisco df shape: ", dim(sanfrancisco_listings)))
+print(paste0("Seattle df shape: ", dim(seattle_listings)))
+print(paste0("Washington DC df shape: ", dim(washingtondc_listings)))
+```
+
+
+
+
+Row bind into one dataframe
+```{r}
+combined_airbnb <- bind_rows(
+  austin_listings, 
+  boston_listings, 
+  cambridge_listings, 
+  chicago_listings, 
+  columbus_listings, 
+  dallas_listings, 
+  denver_listings, 
+  fortworth_listings,
+  ashville_listings,
+  hawaii_listings,
+  jersey_listings,
+  los_angeles_listings,
+  nashville_listings,
+  neworleans_listings,
+  newyork_listings,
+  newark_listings,
+  oakland_listings,
+  pacificgrove_listings,
+  portland_listings,
+  rhodeisland_listings,
+  salem_listings,
+  sandiego_listings,
+  sanfrancisco_listings,
+  seattle_listings,
+  washingtondc_listings
+  )
+print(paste0("Combined df shape: ", dim(combined_airbnb)))
+```
+
+
+```{r}
+head(combined_airbnb)
+```
+
+```{r}
+combined_airbnb <- combined_airbnb %>% select(id,location,state_code,name,latitude,longitude,price,room_type,property_type,accommodates,bathrooms,bedrooms,beds,minimum_nights,maximum_nights,reviews_per_month,listing_url) %>% filter(room_type=="Entire home/apt")
+```
+
+Export to csv
+```{r eval=FALSE}
+write.csv(combined_airbnb, "combined_airbnb.csv", row.names = FALSE)
+```
+"combined_airbnb.csv" that is downloaded is available in the main folder with the app as well as in the US property data cleaning folder as both the app and US property Data cleaning code file requires the use of "combined_airbnb.csv"
+
+
+
+

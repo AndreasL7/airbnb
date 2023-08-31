@@ -1,0 +1,679 @@
+---
+title: "data scraping"
+author: "Chiong Shao Yong, Andreas"
+date: "2022-10-22"
+output: html_document
+---
+
+Note: This file is to scrape property data from Trulia, geocoding to retrieve latlon data based on Address, and Rectification of faulty geocoding process caused by problematic address value
+
+```{r}
+library(rvest)
+library(xml2)
+library(XML)
+library(tidyr)
+library(dplyr)
+library(ggmap)
+library(tmaptools)
+library(RCurl)
+library(jsonlite)
+library(tidyverse)
+library(leaflet)
+library(tidygeocoder)
+library(stringr)
+```
+
+Note: Accessing inner pages. Trying for single case 
+```{r}
+url="https://www.trulia.com/for_sale/New_York,NY/40.07015,41.25351,-74.708,-72.66454_xy/9_zm/2_p/"
+url <- url(url,"rb")
+page<-read_html(url)
+close(url) #close url after loading page #rmb to close connection
+
+nodes=html_nodes(page,".tOCjT")
+a=html_children(nodes)
+listing=html_children(a[[2]])
+listing[1]
+single.listing=html_children(listing[1])[2]
+single.listing
+listing.details=html_children(html_children(html_children(html_children(html_children(html_children(single.listing))))[2]))
+listing.price=listing.details[1]
+listing.size=listing.details[2]
+listing.name=listing.details[3]
+
+listing.page=html_attr(html_children(listing.name)[1],"href")
+paste0("https://www.trulia.com/",listing.page)
+```
+```{r}
+html_text(listing.price)
+html_text(listing.size)
+html_text(listing.name)[1]
+html_attr(html_children(listing.name)[1],"href") # div does not have attribute href!
+```
+
+
+
+```{r}
+listings =html_children(html_nodes(page,".tOCjT"))[[2]]
+
+n.listings=xmlSize(xml_children(listings))
+
+listing.pages=numeric(n.listings)
+
+for(i in 1:n.listings){
+  single.listing=html_children(html_children(listings)[i])[2]
+  listing.details=html_children(html_children(html_children(html_children(html_children(html_children(single.listing))))[2]))
+  listing.price=listing.details[1]
+  listing.size=listing.details[2]
+  listing.name=listing.details[3]
+  listing.page=html_attr(html_children(listing.name)[1],"href")
+  listing.pages[i]=paste0("https://www.trulia.com/",listing.page)
+}
+listing.pages
+```
+
+Initiate data on cities and states 
+
+```{r}
+
+states= c("Asheville,North Carolina","Austin,Texas", "Boston,Massachusetts","Cambridge,Massachusetts","Chicago,Illinois","Columbus,Ohio", "Dallas,Texas","Denver,Colorado","Fort Worth,Texas",",Hawaii","Jersey City,New Jersey","Los Angeles,California","Nashville,Tennessee","New Orleans,Louisiana","New York,New York","Newark,New Jersey","Oakland,California","Pacific Grove,California","Portland,Oregon",",Rhode Island","Salem,Oregon","San Diego,California","San Francisco,California","Seattle,Washington","Washington,District of Columbia")
+# i removed all the counties and Twin Cities MSA Minnesota (this is a whole state not a county)
+
+#US_cities=data.frame(states)
+#US_cities_code=US_cities%>%separate(states,c("Cities","State"),sep=",")%>%left_join(state_abbrevs)%>% select(Cities,Alpha.code)%>% mutate(Cities=gsub(" ","_",Cities))
+#US_cities_code
+
+state_abbrevs <- data.frame(State = state.name, AlphaCode = state.abb)
+state_abbrevs
+
+US_cities <- data.frame(states)
+US_cities
+
+US_cities_code = US_cities %>% separate(states, c("Cities", "State"), sep=",") %>% left_join(state_abbrevs, by="State") %>% select(Cities, AlphaCode) %>% mutate(Cities=gsub(" ", "_", Cities))
+US_cities_code
+
+# replacing the blanks in cities columns for hawaii and Rhode islands which are anot cities but states. Fill the blanks with states name instead 
+US_cities_code$Cities[US_cities_code$AlphaCode=="HI"] <- "Hawaii"
+US_cities_code$AlphaCode[US_cities_code$Cities=="Washington"] <- "DC"
+US_cities_code
+
+#generate list of URL for each city 
+US_cities_code$url=paste0("https://www.trulia.com/",US_cities_code$AlphaCode,"/",US_cities_code$Cities)
+US_cities_code
+
+# function to find the maximum number of pages for the particular city
+page_finder=function(url){
+  url.data<- url(url,"rb")
+  page<-read_html(url.data)
+  close(url.data)
+  nodes=html_nodes(page,".DEVYS")
+  if(xmlSize(nodes)==0){return(1)}# if ".Devys" is missing from the nodes, it means that the website only has 1 page
+  last_page=as.numeric(tail(html_text(nodes),1))
+  return(last_page)
+}
+
+#function to duplicate the url of each city for all pages of the website
+dupli_url=function(url){
+  total.page=page_finder(url)
+  if(total.page==1){
+    pages_url=c(url);return(pages_url)}
+  pg.numbers=paste(2:total.page,"p",sep ="_")
+  pages_url=c(url,paste0(url,"/",pg.numbers,"/"))
+  return(pages_url)
+}
+
+# list of all urls needed to crawl , list is named by the city 
+url.full=list()
+for(i in 1:nrow(US_cities_code)){
+  url.full[[US_cities_code$Cities[i]]]=dupli_url(US_cities_code$url[i])
+  Sys.sleep(2)
+}
+url.full
+```
+
+```{r}
+cbind.na <- function (..., deparse.level = 1)
+{
+ na <- nargs() - (!missing(deparse.level))
+ deparse.level <- as.integer(deparse.level)
+ stopifnot(0 <= deparse.level, deparse.level <= 2)
+ argl <- list(...)
+ while (na > 0 && is.null(argl[[na]])) {
+ argl <- argl[-na]
+ na <- na - 1
+ }
+ if (na == 0)
+ return(NULL)
+ if (na == 1) {
+ if (isS4(..1))
+ return(cbind2(..1))
+ else return(matrix(...)) ##.Internal(cbind(deparse.level, ...)))
+ }
+ if (deparse.level) {
+ symarg <- as.list(sys.call()[-1L])[1L:na]
+ Nms <- function(i) {
+ if (is.null(r <- names(symarg[i])) || r == "") {
+ if (is.symbol(r <- symarg[[i]]) || deparse.level ==
+ 2)
+ deparse(r)
+ }
+ else r
+ }
+ }
+ ## deactivated, otherwise no fill in with two arguments
+ if (na == 0) {
+ r <- argl[[2]]
+ fix.na <- FALSE
+ }
+ else {
+ nrs <- unname(lapply(argl, nrow))
+ iV <- sapply(nrs, is.null)
+ fix.na <- identical(nrs[(na - 1):na], list(NULL, NULL))
+ ## deactivated, otherwise data will be recycled
+ #if (fix.na) {
+ # nr <- max(if (all(iV)) sapply(argl, length) else unlist(nrs[!iV]))
+ # argl[[na]] <- cbind(rep(argl[[na]], length.out = nr),
+ # deparse.level = 0)
+ #}
+ if (deparse.level) {
+ if (fix.na)
+ fix.na <- !is.null(Nna <- Nms(na))
+ if (!is.null(nmi <- names(argl)))
+ iV <- iV & (nmi == "")
+ ii <- if (fix.na)
+ 2:(na - 1)
+ else 2:na
+ if (any(iV[ii])) {
+ for (i in ii[iV[ii]]) if (!is.null(nmi <- Nms(i)))
+ names(argl)[i] <- nmi
+ }
+ }
+
+ ## filling with NA's to maximum occuring nrows
+ nRow <- as.numeric(sapply(argl, function(x) NROW(x)))
+ maxRow <- max(nRow, na.rm = TRUE)
+ argl <- lapply(argl, function(x) if (is.null(nrow(x))) c(x, rep(NA, maxRow - length(x)))
+ else rbind.na(x, matrix(, maxRow - nrow(x), ncol(x))))
+ r <- do.call(cbind, c(argl[-1L], list(deparse.level = deparse.level)))
+ }
+ d2 <- dim(r)
+ r <- cbind2(argl[[1]], r)
+ if (deparse.level == 0)
+ return(r)
+ ism1 <- !is.null(d1 <- dim(..1)) && length(d1) == 2L
+ ism2 <- !is.null(d2) && length(d2) == 2L && !fix.na
+ if (ism1 && ism2)
+ return(r)
+ Ncol <- function(x) {
+ d <- dim(x)
+ if (length(d) == 2L)
+ d[2L]
+ else as.integer(length(x) > 0L)
+ }
+ nn1 <- !is.null(N1 <- if ((l1 <- Ncol(..1)) && !ism1) Nms(1))
+ nn2 <- !is.null(N2 <- if (na == 2 && Ncol(..2) && !ism2) Nms(2))
+ if (nn1 || nn2 || fix.na) {
+ if (is.null(colnames(r)))
+ colnames(r) <- rep.int("", ncol(r))
+ setN <- function(i, nams) colnames(r)[i] <<- if (is.null(nams))
+ ""
+ else nams
+ if (nn1)
+ setN(1, N1)
+ if (nn2)
+ setN(1 + l1, N2)
+ if (fix.na)
+ setN(ncol(r), Nna)
+ }
+ r
+}
+```
+
+
+```{r}
+df_url_full <- as.data.frame(do.call(cbind.na, url.full))
+df_url_full
+```
+
+```{r}
+colnames(df_url_full)[20] <- 'Rhode_Island'
+df_url_full
+```
+
+write all the links and pages on a csv file "cities_url_full.csv"
+```{r} 
+write.csv(x = df_url_full, "cities_url_full.csv", row.names = FALSE)
+```
+
+
+
+for looping through each page 
+```{r}
+US_cities_code$Cities[US_cities_code$AlphaCode == "RI"] <- "Rhode Island"
+US_cities_code
+url_import <- read.csv("cities_url_full.csv")
+url_import
+
+#for(i in US_cities_code$Cities){
+#  pages=url.full[[i]] # vector of url list can loop through this to get each page 
+#  print(pages[1:2]) #filler code can del once u get the details in
+#}
+
+for (item in url_import) {
+  print(item)
+}
+
+#code can be used to convert the list into vector or wtv
+```
+
+```{r}
+US_cities_code
+```
+
+
+#example on how to exclude out empty land area 
+
+data point 19 has an empty land fill, when using this for loop, listing.size will be ""
+
+however have to take note listing size is in the format of <Bedrooms><Bathrooms><sqft> #.dESBlU
+
+```{r}
+url.data<- url(US_cities_code$url[19],"rb")
+page<-read_html(url.data)
+close(url.data)
+listings =html_children(html_nodes(page,".tOCjT"))[[2]]
+n.listings=xmlSize(xml_children(listings))
+
+single.listing=html_children(html_children(listings)[19])[2]
+listing.details=html_children(html_children(html_children(html_children(html_children(html_children(single.listing))))[2]))
+listing.price=html_text(listing.details[1])
+listing.size=html_text(listing.details[2])
+listing.size
+listing.name=html_text(listing.details[3])
+```
+
+```{r}
+listing.name
+listing.size
+listing.price
+xmlSize(xml_children(listings))
+```
+
+
+implemented as a function , can use this in the looping of the pages 
+ 
+not sure if this works for all case pls run and check again 
+edge case is "https://www.trulia.com/CA/Pacific_Grove" as it only has 1 page the html structure is slightly different (look at webpage for more details )
+
+Note: Attempting to scrape data for 1 page. It works!
+```{r}
+get.details.page=function(url){
+  url.data<- url(url,"rb")
+  page<-read_html(url.data)
+  close(url.data)
+  listings =html_children(html_nodes(page,".tOCjT"))[[2]]
+  n.listings=xmlSize(xml_children(listings))
+  price=numeric(n.listings);size=numeric(n.listings);name=numeric(n.listings)
+  for(i in 1:n.listings){
+    tryCatch({
+      single.listing=html_children(html_children(listings)[i])[2]
+      listing.details=html_children(html_children(html_children(html_children(html_children(html_children(single.listing))))[2]))
+      listing.price=html_text(listing.details[1]) ;price[i]=listing.price
+      listing.size=html_text(listing.details[2]) ;size[i]=listing.size
+      listing.name=html_text(listing.details[3]) ;name[i]=listing.name
+    }, 
+    error = function(cond) {
+      price[i]=NA
+      size[i]=NA
+      name[i]=NA
+    })
+    
+  }
+  details.page.df=data.frame(price,size,name) #create a temp data frame to store data for that page 
+  return(details.page.df)
+}
+get.details.page("https://www.trulia.com/IL/Chicago/2_p/") 
+```
+
+```{r}
+complete_data<- setNames(data.frame(matrix(ncol = 3, nrow = 0)), c("sale_price", "size", "name"))
+complete_data
+```
+
+```{r}
+#Chicago starts from 63 on wards
+url_import
+# url_import_v2 <- url_import[64:434,]
+url_import_v2 <- c(url_import)
+url_import_v2
+```
+
+
+Note: Attempting to scrape data from all the URL (take one-two hours to complete)
+```{r}
+url_import_v2 <- url_import_v2[!is.na(url_import_v2)]
+for (each_url in url_import_v2) {
+  result <- setNames(get.details.page(each_url), c("sale_price", "size", "name"))
+  complete_data <- rbind(complete_data, result)
+  Sys.sleep(3)
+}
+```
+
+```{r}
+head(complete_data)
+```
+Note: At this stage, data from Chicago p1 is missing due to inconsistent page layout, we decided to drop this anomalous page 
+```{r}
+#write.csv(complete_data, "complete_data_all_minus_chicago_p1.csv", row.names = FALSE)
+```
+
+```{r}
+complete_data_import <- read.csv("complete_data_all_minus_chicago_p1.csv")
+head(complete_data_import)
+```
+
+Note: Data cleaning process. Delete all the "LISTED xxx"
+```{r}
+complete_data_import = complete_data_import %>% mutate(new.name = gsub("LISTED.*","", name)) 
+```
+
+```{r}
+complete_data_import
+```
+
+```{r}
+drops <- c("name")
+complete_data_import <- complete_data_import[ , !(names(complete_data_import) %in% drops)]
+```
+
+Merge Multiple spaces to single space; remove trailing/leading spaces
+```{r}
+complete_data_import = complete_data_import %>% mutate(new.name.v2 = gsub("\\s+", " ", str_trim(new.name)))
+complete_data_import
+```
+Note: Drop column "new.name"
+```{r}
+drops <- c("new.name")
+complete_data_import <- complete_data_import[ , !(names(complete_data_import) %in% drops)]
+```
+
+Remove "#" and everything after "#", until one character before ","
+```{r}
+complete_data_import = complete_data_import %>% mutate(new.name.v3 = gsub(" #(.*?),", ",", new.name.v2))
+complete_data_import
+```
+
+Note: Drop column "new.name.v2"
+```{r}
+drops <- c("new.name.v2")
+complete_data_import <- complete_data_import[ , !(names(complete_data_import) %in% drops)]
+```
+
+```{r}
+head(complete_data_import)
+```
+
+Note: Attempting to use tidygeocoder to retrieve latlon data for each property based on available address column
+```{r}
+complete_data_import[c(1:10),]
+```
+
+```{r}
+complete_data_import = complete_data_import %>% separate(new.name.v3, c("Address", "Cities", "Postal.Code"), sep=",")
+complete_data_import
+```
+
+```{r}
+complete_data_import = complete_data_import %>% mutate(State = substr(Postal.Code, start = 1, stop = 3)) %>% mutate(Postal.Code = substr(Postal.Code, start = 4, stop = 9))
+complete_data_import
+```
+
+
+```{r}
+geocode_df = geocode(complete_data_import, street= Address, city=Cities, postalcode = Postal.Code, method='osm')
+geocode_df
+```
+
+```{r}
+# write.csv(geocode_df, 'geocode_df.csv')
+```
+
+Note: Turns out tidygeocoder yields largely unsatisfactory result. We decided to delete the lat long column and switch to Google API Geo coder instead.
+```{r}
+geocode_df_copy <- read.csv("geocode_df_copy.csv")
+geocode_df_copy
+```
+
+Note: Since we have more than 16,000 records of data, we decided to split the process into six independent phase to avoid exceeding the limit imposed by Google on their API.
+```{r}
+geocode_df_copy_sub_ONE <- geocode_df_copy[1:3000,]
+geocode_df_copy_sub_TWO <- geocode_df_copy[3001:6000,]
+geocode_df_copy_sub_THREE <- geocode_df_copy[6001:9000,]
+geocode_df_copy_sub_FOUR <- geocode_df_copy[9001:12000,]
+geocode_df_copy_sub_FIVE <- geocode_df_copy[12001:15000,]
+geocode_df_copy_sub_SIX <- geocode_df_copy[15001:16822,]
+
+geocode_df_copy_sub_ONE
+geocode_df_copy_sub_TWO
+geocode_df_copy_sub_THREE
+geocode_df_copy_sub_FOUR
+geocode_df_copy_sub_FIVE
+geocode_df_copy_sub_SIX
+```
+
+
+
+Note: Please enter a valid Google API Key for the geocoding process below
+```{r}
+register_google(key = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX')
+```
+
+```{r}
+geocode_df_copy_sub_ONE = geocode_df_copy_sub_ONE %>% mutate(Full.Address = paste(Address, Cities, State, sep = ", "))
+geocode_df_copy_sub_TWO = geocode_df_copy_sub_TWO %>% mutate(Full.Address = paste(Address, Cities, State, sep = ", "))
+geocode_df_copy_sub_THREE = geocode_df_copy_sub_THREE %>% mutate(Full.Address = paste(Address, Cities, State, sep = ", "))
+geocode_df_copy_sub_FOUR = geocode_df_copy_sub_FOUR %>% mutate(Full.Address = paste(Address, Cities, State, sep = ", "))
+geocode_df_copy_sub_FIVE = geocode_df_copy_sub_FIVE %>% mutate(Full.Address = paste(Address, Cities, State, sep = ", "))
+geocode_df_copy_sub_SIX = geocode_df_copy_sub_SIX %>% mutate(Full.Address = paste(Address, Cities, State, sep = ", "))
+
+head(geocode_df_copy_sub_ONE)
+head(geocode_df_copy_sub_TWO)
+head(geocode_df_copy_sub_THREE)
+head(geocode_df_copy_sub_FOUR)
+head(geocode_df_copy_sub_FIVE)
+head(geocode_df_copy_sub_SIX)
+```
+
+```{r}
+geocode_df_copy_sub_ONE = geocode_df_copy_sub_ONE %>% mutate(Full.Address = paste(Full.Address, Postal.Code, sep = " "))
+geocode_df_copy_sub_TWO = geocode_df_copy_sub_TWO %>% mutate(Full.Address = paste(Full.Address, Postal.Code, sep = " "))
+geocode_df_copy_sub_THREE = geocode_df_copy_sub_THREE %>% mutate(Full.Address = paste(Full.Address, Postal.Code, sep = " "))
+geocode_df_copy_sub_FOUR = geocode_df_copy_sub_FOUR %>% mutate(Full.Address = paste(Full.Address, Postal.Code, sep = " "))
+geocode_df_copy_sub_FIVE = geocode_df_copy_sub_FIVE %>% mutate(Full.Address = paste(Full.Address, Postal.Code, sep = " "))
+geocode_df_copy_sub_SIX = geocode_df_copy_sub_SIX %>% mutate(Full.Address = paste(Full.Address, Postal.Code, sep = " "))
+
+geocode_df_copy_sub_ONE = geocode_df_copy_sub_ONE %>% mutate(Full.Address = paste(Full.Address, "usa", sep = ", "))
+geocode_df_copy_sub_TWO = geocode_df_copy_sub_TWO %>% mutate(Full.Address = paste(Full.Address, "usa", sep = ", "))
+geocode_df_copy_sub_THREE = geocode_df_copy_sub_THREE %>% mutate(Full.Address = paste(Full.Address, "usa", sep = ", "))
+geocode_df_copy_sub_FOUR = geocode_df_copy_sub_FOUR %>% mutate(Full.Address = paste(Full.Address, "usa", sep = ", "))
+geocode_df_copy_sub_FIVE = geocode_df_copy_sub_FIVE %>% mutate(Full.Address = paste(Full.Address, "usa", sep = ", "))
+geocode_df_copy_sub_SIX = geocode_df_copy_sub_SIX %>% mutate(Full.Address = paste(Full.Address, "usa", sep = ", "))
+
+head(geocode_df_copy_sub_ONE)
+head(geocode_df_copy_sub_TWO)
+head(geocode_df_copy_sub_THREE)
+head(geocode_df_copy_sub_FOUR)
+head(geocode_df_copy_sub_FIVE)
+head(geocode_df_copy_sub_SIX)
+```
+
+Note: Geocoding process begins 1/6
+```{r}
+pubs_ggmap_ONE <- geocode(location = geocode_df_copy_sub_ONE$Full.Address, output = "latlona", source = "google")
+pubs_ggmap_ONE <- cbind(geocode_df_copy_sub_ONE, pubs_ggmap_ONE)
+
+head(pubs_ggmap_ONE)
+```
+
+Note: Writing file just in case
+```{r}
+# write.csv(pubs_ggmap_ONE, "pubs_ggmap_ONE.csv")
+```
+
+Note: Geocoding process begins 2/6
+```{r}
+pubs_ggmap_TWO <- geocode(location = geocode_df_copy_sub_TWO$Full.Address, output = "latlona", source = "google")
+pubs_ggmap_TWO <- cbind(geocode_df_copy_sub_TWO, pubs_ggmap_TWO)
+
+head(pubs_ggmap_TWO)
+```
+
+
+```{r}
+# write.csv(pubs_ggmap_TWO, "pubs_ggmap_TWO.csv")
+```
+
+Note: Geocoding process begins 3/6
+```{r}
+pubs_ggmap_THREE <- geocode(location = geocode_df_copy_sub_THREE$Full.Address, output = "latlona", source = "google")
+pubs_ggmap_THREE <- cbind(geocode_df_copy_sub_THREE, pubs_ggmap_THREE)
+
+pubs_ggmap_THREE
+```
+
+```{r}
+# write.csv(pubs_ggmap_THREE, "pubs_ggmap_THREE.csv")
+```
+
+Note: Geocoding process begins 4/6
+```{r}
+pubs_ggmap_FOUR <- geocode(location = geocode_df_copy_sub_FOUR$Full.Address, output = "latlona", source = "google")
+pubs_ggmap_FOUR <- cbind(geocode_df_copy_sub_FOUR, pubs_ggmap_FOUR)
+
+head(pubs_ggmap_FOUR)
+```
+
+```{r}
+# write.csv(pubs_ggmap_FOUR, "pubs_ggmap_FOUR.csv")
+```
+
+Note: Geocoding process begins 5/6
+```{r}
+pubs_ggmap_FIVE <- geocode(location = geocode_df_copy_sub_FIVE$Full.Address, output = "latlona", source = "google")
+pubs_ggmap_FIVE <- cbind(geocode_df_copy_sub_FIVE, pubs_ggmap_FIVE)
+
+head(pubs_ggmap_FIVE)
+```
+
+```{r}
+# write.csv(pubs_ggmap_FIVE, "pubs_ggmap_FIVE.csv")
+```
+
+Note: Geocoding process begins 6/6
+```{r}
+pubs_ggmap_SIX <- geocode(location = geocode_df_copy_sub_SIX$Full.Address, output = "latlona", source = "google")
+pubs_ggmap_SIX <- cbind(geocode_df_copy_sub_SIX, pubs_ggmap_SIX)
+head(pubs_ggmap_SIX)
+```
+
+```{r}
+# write.csv(pubs_ggmap_SIX, "pubs_ggmap_SIX.csv")
+```
+
+Combine all the 6 dataframe into one
+```{r}
+pubs_ggmap_COMPLETE <- bind_rows(pubs_ggmap_ONE, pubs_ggmap_TWO, pubs_ggmap_THREE, pubs_ggmap_FOUR, pubs_ggmap_FIVE, pubs_ggmap_SIX)
+head(pubs_ggmap_COMPLETE)
+```
+
+```{r}
+write.csv(pubs_ggmap_COMPLETE, "pubs_ggmap_COMPLETE.csv")
+```
+
+```{r}
+head(pubs_ggmap_COMPLETE)
+```
+Note: Some very minor errors were spotted afterward. The code below are to identify and rectify these anomalies
+```{r}
+pubs_ggmap_COMPLETE[pubs_ggmap_COMPLETE$Postal.Code == "94130",]
+```
+
+```{r}
+pubs_ggmap_error_instance <- pubs_ggmap_COMPLETE[14549,]
+pubs_ggmap_error_instance
+```
+
+```{r}
+pubs_ggmap_error_instance_updated <- geocode(location = pubs_ggmap_error_instance$Full.Address, output = "latlona", source = "google")
+pubs_ggmap_error_instance_updated
+```
+
+```{r}
+pubs_ggmap_error_instance <- bind_cols(pubs_ggmap_error_instance, pubs_ggmap_error_instance_updated)
+pubs_ggmap_error_instance
+colnames(pubs_ggmap_error_instance)
+```
+
+Note: drop "lon...8"      "lat...9"      "address...10"
+```{r}
+pubs_ggmap_error_instance <- pubs_ggmap_error_instance[c("sale_price", "size", "Address", "Cities", "Postal.Code", "State", "Full.Address", "lon...11", "lat...12", "address...13")]
+names(pubs_ggmap_error_instance)[names(pubs_ggmap_error_instance) == "lon...11"] <- 'lon'
+names(pubs_ggmap_error_instance)[names(pubs_ggmap_error_instance) == "lat...12"] <- 'lat'
+names(pubs_ggmap_error_instance)[names(pubs_ggmap_error_instance) == "address...13"] <- 'address'
+pubs_ggmap_error_instance
+```
+
+Note: Another error identified
+```{r}
+pubs_ggmap_COMPLETE[14549,] <- pubs_ggmap_error_instance
+```
+
+```{r}
+pubs_ggmap_COMPLETE[9107,]
+```
+
+```{r}
+pubs_ggmap_COMPLETE[9107,'Address'] <- "Lower Ninth Ward"
+pubs_ggmap_COMPLETE[9107,'Full.Address'] <- "Lower Ninth Ward, New Orleans, LA 70117, usa"
+pubs_ggmap_COMPLETE[9107,]
+```
+
+```{r}
+pubs_ggmap_error_instance <- pubs_ggmap_COMPLETE[9107,]
+pubs_ggmap_error_instance
+```
+
+```{r}
+pubs_ggmap_error_instance_updated <- geocode(location = pubs_ggmap_error_instance$Full.Address, output = "latlona", source = "google")
+pubs_ggmap_error_instance_updated
+```
+
+
+```{r}
+pubs_ggmap_error_instance <- bind_cols(pubs_ggmap_error_instance, pubs_ggmap_error_instance_updated)
+pubs_ggmap_error_instance
+colnames(pubs_ggmap_error_instance)
+```
+
+Note: drop "lon...8"      "lat...9"      "address...10"
+```{r}
+pubs_ggmap_error_instance <- pubs_ggmap_error_instance[c("sale_price", "size", "Address", "Cities", "Postal.Code", "State", "Full.Address", "lon...11", "lat...12", "address...13")]
+names(pubs_ggmap_error_instance)[names(pubs_ggmap_error_instance) == "lon...11"] <- 'lon'
+names(pubs_ggmap_error_instance)[names(pubs_ggmap_error_instance) == "lat...12"] <- 'lat'
+names(pubs_ggmap_error_instance)[names(pubs_ggmap_error_instance) == "address...13"] <- 'address'
+pubs_ggmap_error_instance
+```
+
+```{r}
+pubs_ggmap_COMPLETE[9107,] <- pubs_ggmap_error_instance
+```
+
+```{r}
+pubs_ggmap_COMPLETE[9107,]
+```
+Note: "US property data raw.csv" contains the most updated property data scraped
+```{r eval=FALSE}
+ write.csv(pubs_ggmap_COMPLETE, "US property data raw.csv", row.names = FALSE)
+```
+
+"US property data raw.csv"" that is downloaded is found in the US property data cleaning folder  as the US property data cleaning folder requires the use of "US Property data Cleaned.csv"
